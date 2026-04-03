@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+import 'package:url_launcher/url_launcher.dart';
 void main() {
   runApp(CooperPedidos());
 }
@@ -39,6 +39,7 @@ class _TelaPedidoState extends State<TelaPedido> {
   String origemSelecionada = 'Acessório';
 
   void adicionarProduto() {
+    if (nomeController.text.isEmpty) return;
     setState(() {
       pedido.add(Produto(
         codigoController.text,
@@ -59,6 +60,26 @@ class _TelaPedidoState extends State<TelaPedido> {
     return filialController.text;
   }
 
+void enviarWhatsApp() async {
+  if (pedido.isEmpty) return;
+
+  String mensagem = '📦 *PEDIDO - $origemSelecionada (Filial $numeroFilial)*\n';
+  mensagem += '━━━━━━━━━━━━━━\n';
+
+  for (int i = 0; i < pedido.length; i++) {
+    mensagem += '${pedido[i].codigo} | ${pedido[i].nome} | ${pedido[i].quantidade} ${pedido[i].unidade}\n';
+  }
+
+  mensagem += '━━━━━━━━━━━━━━\n';
+  mensagem += 'Total: ${pedido.length} itens';
+
+  final url = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(mensagem)}');
+  
+  if (await canLaunchUrl(url)) {
+    await launchUrl(url);
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -70,7 +91,6 @@ class _TelaPedidoState extends State<TelaPedido> {
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
-            // ORIGEM
             Row(
               children: [
                 Expanded(
@@ -149,7 +169,7 @@ class _TelaPedidoState extends State<TelaPedido> {
                 border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 20),
+            SizedBox(height: 12),
             ElevatedButton(
               onPressed: adicionarProduto,
               style: ElevatedButton.styleFrom(
@@ -161,7 +181,7 @@ class _TelaPedidoState extends State<TelaPedido> {
                 style: TextStyle(color: Colors.white),
               ),
             ),
-            SizedBox(height: 20),
+            SizedBox(height: 8),
             Expanded(
               child: ListView.builder(
                 itemCount: pedido.length,
@@ -185,6 +205,18 @@ class _TelaPedidoState extends State<TelaPedido> {
                     ),
                   );
                 },
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: enviarWhatsApp,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Color(0xFF25D366),
+                minimumSize: Size(double.infinity, 50),
+              ),
+              icon: Icon(Icons.send, color: Colors.white),
+              label: Text(
+                'Enviar pelo WhatsApp',
+                style: TextStyle(color: Colors.white),
               ),
             ),
           ],
