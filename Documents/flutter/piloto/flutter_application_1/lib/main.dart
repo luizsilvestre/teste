@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'database.dart';
+import 'editar_pedido.dart';
+
 void main() {
   runApp(CooperPedidos());
 }
@@ -7,10 +10,7 @@ void main() {
 class CooperPedidos extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'CooperPedidos',
-      home: TelaPedido(),
-    );
+    return MaterialApp(title: 'CooperPedidos', home: TelaPedido());
   }
 }
 
@@ -41,12 +41,14 @@ class _TelaPedidoState extends State<TelaPedido> {
   void adicionarProduto() {
     if (nomeController.text.isEmpty) return;
     setState(() {
-      pedido.add(Produto(
-        codigoController.text,
-        nomeController.text,
-        quantidadeController.text,
-        unidadeController.text,
-      ));
+      pedido.add(
+        Produto(
+          codigoController.text,
+          nomeController.text,
+          quantidadeController.text,
+          unidadeController.text,
+        ),
+      );
       codigoController.clear();
       nomeController.clear();
       quantidadeController.clear();
@@ -60,25 +62,57 @@ class _TelaPedidoState extends State<TelaPedido> {
     return filialController.text;
   }
 
-void enviarWhatsApp() async {
-  if (pedido.isEmpty) return;
+  Future<void> finalizarPedido() async {
+    if (pedido.isEmpty) return;
 
-  String mensagem = '📦 *PEDIDO - $origemSelecionada (Filial $numeroFilial)*\n';
-  mensagem += '━━━━━━━━━━━━━━\n';
+    int pedidoId = await DatabaseHelper.salvarPedido(
+      origemSelecionada,
+      numeroFilial,
+    );
 
-  for (int i = 0; i < pedido.length; i++) {
-    mensagem += '${pedido[i].codigo} | ${pedido[i].nome} | ${pedido[i].quantidade} ${pedido[i].unidade}\n';
+    for (var item in pedido) {
+      await DatabaseHelper.salvarItem(
+        pedidoId,
+        item.codigo,
+        item.nome,
+        item.quantidade,
+        item.unidade,
+      );
+    }
+
+    setState(() {
+      pedido.clear();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('✅ Pedido salvo com sucesso!'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
-  mensagem += '━━━━━━━━━━━━━━\n';
-  mensagem += 'Total: ${pedido.length} itens';
+  void enviarWhatsApp() async {
+    if (pedido.isEmpty) return;
 
-  final url = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(mensagem)}');
-  
-  if (await canLaunchUrl(url)) {
-    await launchUrl(url);
+    String mensagem =
+        '📦 *PEDIDO - $origemSelecionada (Filial $numeroFilial)*\n';
+    mensagem += '━━━━━━━━━━━━━━\n';
+
+    for (int i = 0; i < pedido.length; i++) {
+      mensagem +=
+          '${pedido[i].codigo} | ${pedido[i].nome} | ${pedido[i].quantidade} ${pedido[i].unidade}\n';
+    }
+
+    mensagem += '━━━━━━━━━━━━━━\n';
+    mensagem += 'Total: ${pedido.length} itens';
+
+    final url = Uri.parse(
+      'https://wa.me/?text=${Uri.encodeComponent(mensagem)}',
+    );
+
+    await launchUrl(url, mode: LaunchMode.externalApplication);
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -86,6 +120,17 @@ void enviarWhatsApp() async {
       appBar: AppBar(
         title: Text('CooperPedidos'),
         backgroundColor: Colors.green,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.history, color: Colors.white),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => TelaHistorico()),
+              );
+            },
+          ),
+        ],
       ),
       body: Padding(
         padding: EdgeInsets.all(16),
@@ -193,7 +238,9 @@ void enviarWhatsApp() async {
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       title: Text(pedido[index].nome),
-                      subtitle: Text('${pedido[index].quantidade} ${pedido[index].unidade}'),
+                      subtitle: Text(
+                        '${pedido[index].quantidade} ${pedido[index].unidade}',
+                      ),
                       trailing: IconButton(
                         icon: Icon(Icons.delete, color: Colors.red),
                         onPressed: () {
@@ -207,20 +254,221 @@ void enviarWhatsApp() async {
                 },
               ),
             ),
-            ElevatedButton.icon(
-              onPressed: enviarWhatsApp,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF25D366),
-                minimumSize: Size(double.infinity, 50),
-              ),
-              icon: Icon(Icons.send, color: Colors.white),
-              label: Text(
-                'Enviar pelo WhatsApp',
-                style: TextStyle(color: Colors.white),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: finalizarPedido,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      minimumSize: Size(double.infinity, 50),
+                    ),
+                    child: Text(
+                      '💾 Salvar',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: enviarWhatsApp,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Color(0xFF25D366),
+                      minimumSize: Size(double.infinity, 50),
+                    ),
+                    icon: Icon(Icons.send, color: Colors.white),
+                    label: Text(
+                      'WhatsApp',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════ TELA HISTÓRICO ═══════════════════
+class TelaHistorico extends StatefulWidget {
+  @override
+  State<TelaHistorico> createState() => _TelaHistoricoState();
+}
+
+class _TelaHistoricoState extends State<TelaHistorico> {
+  List<Map<String, dynamic>> pedidos = [];
+  DateTime? dataFiltro;
+
+  @override
+  void initState() {
+    super.initState();
+    carregarPedidos();
+  }
+
+  Future<void> carregarPedidos() async {
+    List<Map<String, dynamic>> lista;
+    if (dataFiltro != null) {
+      lista = await DatabaseHelper.buscarPedidosPorData(dataFiltro!);
+    } else {
+      lista = await DatabaseHelper.buscarPedidos();
+    }
+    setState(() {
+      pedidos = lista;
+    });
+  }
+
+  Future<void> selecionarData() async {
+    final data = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2024),
+      lastDate: DateTime.now(),
+    );
+    if (data != null) {
+      setState(() {
+        dataFiltro = data;
+      });
+      carregarPedidos();
+    }
+  }
+
+  Future<void> apagarPedido(int id) async {
+    final confirma = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Apagar pedido?'),
+        content: Text('Esta ação não pode ser desfeita.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Apagar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirma == true) {
+      await DatabaseHelper.apagarPedido(id);
+      carregarPedidos();
+    }
+  }
+
+  Future<void> abrirPedido(Map<String, dynamic> pedido) async {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => TelaEditarPedido(pedido: pedido)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Histórico de Pedidos'),
+        backgroundColor: Colors.green,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.calendar_today, color: Colors.white),
+            onPressed: selecionarData,
+          ),
+          if (dataFiltro != null)
+            IconButton(
+              icon: Icon(Icons.clear, color: Colors.white),
+              onPressed: () {
+                setState(() {
+                  dataFiltro = null;
+                });
+                carregarPedidos();
+              },
+            ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (dataFiltro != null)
+            Container(
+              padding: EdgeInsets.all(8),
+              color: Colors.green.shade100,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.filter_alt, color: Colors.green),
+                  SizedBox(width: 8),
+                  Text(
+                    'Filtrando: ${dataFiltro!.day}/${dataFiltro!.month}/${dataFiltro!.year}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: pedidos.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.history, size: 64, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text(
+                          'Nenhum pedido encontrado.',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: EdgeInsets.all(16),
+                    itemCount: pedidos.length,
+                    itemBuilder: (context, index) {
+                      final p = pedidos[index];
+                      final data = DateTime.parse(p['data']);
+                      final dataStr =
+                          '${data.day}/${data.month}/${data.year} ${data.hour}:${data.minute.toString().padLeft(2, '0')}';
+                      return Card(
+                        child: ListTile(
+                          leading: Icon(Icons.receipt, color: Colors.green),
+                          title: Text('${p['origem']} — Filial ${p['filial']}'),
+                          subtitle: Text(dataStr),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ElevatedButton(
+                                onPressed: () => abrirPedido(p),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  padding: EdgeInsets.symmetric(horizontal: 8),
+                                ),
+                                child: Text(
+                                  '📂 Abrir',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 4),
+                              IconButton(
+                                icon: Icon(Icons.delete, color: Colors.red),
+                                onPressed: () => apagarPedido(p['id']),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
