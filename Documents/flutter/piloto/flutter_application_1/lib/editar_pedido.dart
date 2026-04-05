@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'database.dart';
 import 'main.dart' show Produto;
+import 'imprimir_pedido.dart';
 
 class TelaEditarPedido extends StatefulWidget {
   final Map<String, dynamic> pedido;
@@ -30,16 +31,12 @@ class _TelaEditarPedidoState extends State<TelaEditarPedido> {
   Future<void> carregarItens() async {
     final lista = await DatabaseHelper.buscarItens(widget.pedido['id']);
     setState(() {
-      itens = lista
-          .map(
-            (i) => Produto(
-              i['codigo'] ?? '',
-              i['nome'] ?? '',
-              i['quantidade'] ?? '',
-              i['unidade'] ?? '',
-            ),
-          )
-          .toList();
+      itens = lista.map((i) => Produto(
+        i['codigo'] ?? '',
+        i['nome'] ?? '',
+        i['quantidade'] ?? '',
+        i['unidade'] ?? '',
+      )).toList();
       carregando = false;
     });
   }
@@ -47,14 +44,12 @@ class _TelaEditarPedidoState extends State<TelaEditarPedido> {
   void adicionarProduto() {
     if (nomeController.text.isEmpty) return;
     setState(() {
-      itens.add(
-        Produto(
-          codigoController.text,
-          nomeController.text,
-          quantidadeController.text,
-          unidadeController.text,
-        ),
-      );
+      itens.add(Produto(
+        codigoController.text,
+        nomeController.text,
+        quantidadeController.text,
+        unidadeController.text,
+      ));
       codigoController.clear();
       nomeController.clear();
       quantidadeController.clear();
@@ -78,15 +73,14 @@ class _TelaEditarPedidoState extends State<TelaEditarPedido> {
     mensagem += '━━━━━━━━━━━━━━\n';
 
     for (int i = 0; i < itens.length; i++) {
-      mensagem +=
-          '${itens[i].codigo} | ${itens[i].nome} | ${itens[i].quantidade} ${itens[i].unidade}\n';
+      mensagem += '${itens[i].codigo} | ${itens[i].nome} | ${itens[i].quantidade} ${itens[i].unidade}\n';
     }
 
     mensagem += '━━━━━━━━━━━━━━\n';
     mensagem += 'Total: ${itens.length} itens';
 
     final url = Uri.parse(
-      'https://wa.me/?text=${Uri.encodeComponent(mensagem)}',
+      'https://wa.me/?text=${Uri.encodeComponent(mensagem)}'
     );
 
     await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -105,6 +99,7 @@ class _TelaEditarPedidoState extends State<TelaEditarPedido> {
               padding: EdgeInsets.all(16),
               child: Column(
                 children: [
+                  // Info do pedido
                   Container(
                     padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -188,9 +183,7 @@ class _TelaEditarPedidoState extends State<TelaEditarPedido> {
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             title: Text(itens[index].nome),
-                            subtitle: Text(
-                              '${itens[index].quantidade} ${itens[index].unidade}',
-                            ),
+                            subtitle: Text('${itens[index].quantidade} ${itens[index].unidade}'),
                             trailing: IconButton(
                               icon: Icon(Icons.delete, color: Colors.red),
                               onPressed: () => removerItem(index),
@@ -200,17 +193,44 @@ class _TelaEditarPedidoState extends State<TelaEditarPedido> {
                       },
                     ),
                   ),
-                  ElevatedButton.icon(
-                    onPressed: enviarWhatsApp,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFF25D366),
-                      minimumSize: Size(double.infinity, 50),
-                    ),
-                    icon: Icon(Icons.send, color: Colors.white),
-                    label: Text(
-                      'Enviar pelo WhatsApp',
-                      style: TextStyle(color: Colors.white),
-                    ),
+                  SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: enviarWhatsApp,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Color(0xFF25D366),
+                            minimumSize: Size(double.infinity, 50),
+                          ),
+                          icon: Icon(Icons.send, color: Colors.white),
+                          label: Text(
+                            'WhatsApp',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => ImprimirPedido.imprimir(
+                            context,
+                            widget.pedido['origem'] ?? '',
+                            widget.pedido['filial'] ?? '',
+                            itens,
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            minimumSize: Size(double.infinity, 50),
+                          ),
+                          icon: Icon(Icons.print, color: Colors.white),
+                          label: Text(
+                            'Imprimir',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

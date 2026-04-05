@@ -117,9 +117,12 @@ class _TelaPedidoState extends State<TelaPedido> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('CooperPedidos'),
-        backgroundColor: Colors.green,
+     appBar: AppBar(
+  title: Image.asset(
+    'assets/logo.png',
+    height: 40,
+  ),
+  backgroundColor: Colors.green,
         actions: [
           IconButton(
             icon: Icon(Icons.history, color: Colors.white),
