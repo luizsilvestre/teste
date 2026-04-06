@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'database.dart';
 import 'editar_pedido.dart';
+import 'imprimir_pedido.dart';
 
 void main() {
   runApp(CooperPedidos());
@@ -10,7 +11,10 @@ void main() {
 class CooperPedidos extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(title: 'CooperPedidos', home: TelaPedido());
+    return MaterialApp(
+      title: 'CooperPedidos',
+      home: TelaPedido(),
+    );
   }
 }
 
@@ -19,8 +23,10 @@ class Produto {
   String nome;
   String quantidade;
   String unidade;
+  String origem;
+  String filial;
 
-  Produto(this.codigo, this.nome, this.quantidade, this.unidade);
+  Produto(this.codigo, this.nome, this.quantidade, this.unidade, this.origem, this.filial);
 }
 
 class TelaPedido extends StatefulWidget {
@@ -33,22 +39,37 @@ class _TelaPedidoState extends State<TelaPedido> {
   TextEditingController nomeController = TextEditingController();
   TextEditingController quantidadeController = TextEditingController();
   TextEditingController unidadeController = TextEditingController();
-  TextEditingController filialController = TextEditingController();
+  TextEditingController filialIndustriaController = TextEditingController();
 
   List<Produto> pedido = [];
-  String origemSelecionada = 'Acessório';
+  String origemSelecionada = 'Central';
+
+  String get numeroFilial {
+    if (origemSelecionada == 'Central') return '29';
+    if (origemSelecionada == 'Acessórios') return '6';
+    return filialIndustriaController.text;
+  }
 
   void adicionarProduto() {
     if (nomeController.text.isEmpty) return;
-    setState(() {
-      pedido.add(
-        Produto(
-          codigoController.text,
-          nomeController.text,
-          quantidadeController.text,
-          unidadeController.text,
+    if (origemSelecionada == 'Indústria' && filialIndustriaController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ Informe o número da filial da Indústria!'),
+          backgroundColor: Colors.orange,
         ),
       );
+      return;
+    }
+    setState(() {
+      pedido.add(Produto(
+        codigoController.text,
+        nomeController.text,
+        quantidadeController.text,
+        unidadeController.text,
+        origemSelecionada,
+        numeroFilial,
+      ));
       codigoController.clear();
       nomeController.clear();
       quantidadeController.clear();
@@ -56,33 +77,36 @@ class _TelaPedidoState extends State<TelaPedido> {
     });
   }
 
-  String get numeroFilial {
-    if (origemSelecionada == 'Acessório') return '6';
-    if (origemSelecionada == 'Central') return '29';
-    return filialController.text;
-  }
-
   Future<void> finalizarPedido() async {
     if (pedido.isEmpty) return;
 
-    int pedidoId = await DatabaseHelper.salvarPedido(
-      origemSelecionada,
-      numeroFilial,
-    );
+    final origens = pedido.map((p) => '${p.origem}|${p.filial}').toSet();
 
-    for (var item in pedido) {
-      await DatabaseHelper.salvarItem(
-        pedidoId,
-        item.codigo,
-        item.nome,
-        item.quantidade,
-        item.unidade,
-      );
+    for (var origemFilial in origens) {
+      final partes = origemFilial.split('|');
+      final origem = partes[0];
+      final filial = partes[1];
+
+      int pedidoId = await DatabaseHelper.salvarPedido(origem, filial);
+
+      final itensDaOrigem = pedido
+          .where((p) => p.origem == origem && p.filial == filial)
+          .toList();
+
+      for (var item in itensDaOrigem) {
+        await DatabaseHelper.salvarItem(
+          pedidoId,
+          item.codigo,
+          item.nome,
+          item.quantidade,
+          item.unidade,
+          origem: item.origem,
+          filial: item.filial,
+        );
+      }
     }
 
-    setState(() {
-      pedido.clear();
-    });
+    setState(() { pedido.clear(); });
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -95,20 +119,41 @@ class _TelaPedidoState extends State<TelaPedido> {
   void enviarWhatsApp() async {
     if (pedido.isEmpty) return;
 
-    String mensagem =
-        '📦 *PEDIDO - $origemSelecionada (Filial $numeroFilial)*\n';
-    mensagem += '━━━━━━━━━━━━━━\n';
+    final central = pedido.where((p) => p.origem == 'Central').toList();
+    final acessorios = pedido.where((p) => p.origem == 'Acessórios').toList();
+    final industria = pedido.where((p) => p.origem == 'Indústria').toList();
 
-    for (int i = 0; i < pedido.length; i++) {
-      mensagem +=
-          '${pedido[i].codigo} | ${pedido[i].nome} | ${pedido[i].quantidade} ${pedido[i].unidade}\n';
+    String mensagem = '';
+
+    if (central.isNotEmpty) {
+      mensagem += '📦 *CENTRAL DE DISTRIBUIÇÃO — Filial 29*\n';
+      mensagem += '━━━━━━━━━━━━━━\n';
+      for (var item in central) {
+        mensagem += '${item.codigo} | ${item.nome} | ${item.quantidade} ${item.unidade}\n';
+      }
+      mensagem += 'Total: ${central.length} itens\n\n';
     }
 
-    mensagem += '━━━━━━━━━━━━━━\n';
-    mensagem += 'Total: ${pedido.length} itens';
+    if (acessorios.isNotEmpty) {
+      mensagem += '📦 *ACESSÓRIOS — Filial 6*\n';
+      mensagem += '━━━━━━━━━━━━━━\n';
+      for (var item in acessorios) {
+        mensagem += '${item.codigo} | ${item.nome} | ${item.quantidade} ${item.unidade}\n';
+      }
+      mensagem += 'Total: ${acessorios.length} itens\n\n';
+    }
+
+    if (industria.isNotEmpty) {
+      mensagem += '📦 *INDÚSTRIA — Filial ${industria.first.filial}*\n';
+      mensagem += '━━━━━━━━━━━━━━\n';
+      for (var item in industria) {
+        mensagem += '${item.codigo} | ${item.nome} | ${item.quantidade} ${item.unidade}\n';
+      }
+      mensagem += 'Total: ${industria.length} itens\n';
+    }
 
     final url = Uri.parse(
-      'https://wa.me/?text=${Uri.encodeComponent(mensagem)}',
+      'https://wa.me/?text=${Uri.encodeComponent(mensagem)}'
     );
 
     await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -116,14 +161,25 @@ class _TelaPedidoState extends State<TelaPedido> {
 
   @override
   Widget build(BuildContext context) {
+    final central = pedido.where((p) => p.origem == 'Central').toList();
+    final acessorios = pedido.where((p) => p.origem == 'Acessórios').toList();
+    final industria = pedido.where((p) => p.origem == 'Indústria').toList();
+
     return Scaffold(
-     appBar: AppBar(
-  title: Image.asset(
-    'assets/logo.png',
-    height: 40,
-  ),
-  backgroundColor: Colors.green,
+      appBar: AppBar(
+        title: Image.asset('assets/logo.png', height: 40),
+        backgroundColor: Colors.green,
         actions: [
+          IconButton(
+            icon: Icon(Icons.send, color: Colors.white),
+            onPressed: pedido.isEmpty ? null : enviarWhatsApp,
+          ),
+          IconButton(
+            icon: Icon(Icons.print, color: Colors.white),
+            onPressed: pedido.isEmpty ? null : () {
+              ImprimirPedido.imprimir(context, pedido);
+            },
+          ),
           IconButton(
             icon: Icon(Icons.history, color: Colors.white),
             onPressed: () {
@@ -139,60 +195,53 @@ class _TelaPedidoState extends State<TelaPedido> {
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: origemSelecionada,
-                    decoration: InputDecoration(
-                      labelText: 'Origem',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: ['Acessório', 'Central', 'Outra']
-                        .map((o) => DropdownMenuItem(value: o, child: Text(o)))
-                        .toList(),
-                    onChanged: (valor) {
-                      setState(() {
-                        origemSelecionada = valor!;
-                        filialController.clear();
-                      });
-                    },
-                  ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: origemSelecionada == 'Outra'
-                      ? TextField(
-                          controller: filialController,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: 'Nº da Filial',
-                            border: OutlineInputBorder(),
-                          ),
-                        )
-                      : Container(
-                          padding: EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            'Filial: $numeroFilial',
-                            style: TextStyle(fontSize: 16),
-                          ),
-                        ),
-                ),
-              ],
+            DropdownButtonFormField<String>(
+              value: origemSelecionada,
+              decoration: InputDecoration(
+                labelText: 'Origem',
+                border: OutlineInputBorder(),
+              ),
+              items: ['Central', 'Acessórios', 'Indústria']
+                  .map((o) => DropdownMenuItem(value: o, child: Text(o)))
+                  .toList(),
+              onChanged: (valor) {
+                setState(() {
+                  origemSelecionada = valor!;
+                  filialIndustriaController.clear();
+                });
+              },
             ),
+            if (origemSelecionada == 'Indústria') ...[
+              SizedBox(height: 8),
+              TextField(
+                controller: filialIndustriaController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Nº da Filial da Indústria',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ] else ...[
+              SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text('Filial: $numeroFilial', style: TextStyle(fontSize: 16)),
+              ),
+            ],
             SizedBox(height: 12),
             TextField(
               controller: codigoController,
               decoration: InputDecoration(
-                labelText: 'Código do produto',
+                labelText: 'Código',
                 border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 12),
+            SizedBox(height: 8),
             TextField(
               controller: nomeController,
               decoration: InputDecoration(
@@ -200,98 +249,104 @@ class _TelaPedidoState extends State<TelaPedido> {
                 border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 12),
-            TextField(
-              controller: quantidadeController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Quantidade',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 12),
-            TextField(
-              controller: unidadeController,
-              decoration: InputDecoration(
-                labelText: 'Unidade (kg, cx, un...)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: adicionarProduto,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                minimumSize: Size(double.infinity, 50),
-              ),
-              child: Text(
-                'Adicionar Produto',
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
             SizedBox(height: 8),
-            Expanded(
-              child: ListView.builder(
-                itemCount: pedido.length,
-                itemBuilder: (context, index) {
-                  return Card(
-                    child: ListTile(
-                      leading: Text(
-                        pedido[index].codigo,
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      title: Text(pedido[index].nome),
-                      subtitle: Text(
-                        '${pedido[index].quantidade} ${pedido[index].unidade}',
-                      ),
-                      trailing: IconButton(
-                        icon: Icon(Icons.delete, color: Colors.red),
-                        onPressed: () {
-                          setState(() {
-                            pedido.removeAt(index);
-                          });
-                        },
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
             Row(
               children: [
                 Expanded(
-                  child: ElevatedButton(
-                    onPressed: finalizarPedido,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      minimumSize: Size(double.infinity, 50),
-                    ),
-                    child: Text(
-                      '💾 Salvar',
-                      style: TextStyle(color: Colors.white),
+                  child: TextField(
+                    controller: quantidadeController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Quantidade',
+                      border: OutlineInputBorder(),
                     ),
                   ),
                 ),
                 SizedBox(width: 8),
                 Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: enviarWhatsApp,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFF25D366),
-                      minimumSize: Size(double.infinity, 50),
-                    ),
-                    icon: Icon(Icons.send, color: Colors.white),
-                    label: Text(
-                      'WhatsApp',
-                      style: TextStyle(color: Colors.white),
+                  child: TextField(
+                    controller: unidadeController,
+                    decoration: InputDecoration(
+                      labelText: 'Unidade',
+                      border: OutlineInputBorder(),
                     ),
                   ),
                 ),
               ],
             ),
+            SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: adicionarProduto,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                minimumSize: Size(double.infinity, 48),
+              ),
+              child: Text('✚ Adicionar Produto', style: TextStyle(color: Colors.white)),
+            ),
+            SizedBox(height: 8),
+            Expanded(
+              child: pedido.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Nenhum produto adicionado.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    )
+                  : ListView(
+                      children: [
+                        if (central.isNotEmpty) _secao('Central de Distribuição', '29', central, Colors.blue),
+                        if (acessorios.isNotEmpty) _secao('Acessórios', '6', acessorios, Colors.orange),
+                        if (industria.isNotEmpty) _secao('Indústria', industria.first.filial, industria, Colors.purple),
+                      ],
+                    ),
+            ),
+            SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: finalizarPedido,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                minimumSize: Size(double.infinity, 48),
+              ),
+              child: Text('💾 Salvar Pedido', style: TextStyle(color: Colors.white)),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _secao(String titulo, String filial, List<Produto> itens, Color cor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: cor.withOpacity(0.15),
+            border: Border.all(color: cor),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            '$titulo — Filial $filial (${itens.length} itens)',
+            style: TextStyle(fontWeight: FontWeight.bold, color: cor),
+          ),
+        ),
+        ...itens.map((item) => Card(
+          child: ListTile(
+            leading: Text(item.codigo, style: TextStyle(fontWeight: FontWeight.bold)),
+            title: Text(item.nome),
+            subtitle: Text('${item.quantidade} ${item.unidade}'),
+            trailing: IconButton(
+              icon: Icon(Icons.delete, color: Colors.red),
+              onPressed: () {
+                setState(() { pedido.remove(item); });
+              },
+            ),
+          ),
+        )),
+        SizedBox(height: 8),
+      ],
     );
   }
 }
@@ -319,9 +374,7 @@ class _TelaHistoricoState extends State<TelaHistorico> {
     } else {
       lista = await DatabaseHelper.buscarPedidos();
     }
-    setState(() {
-      pedidos = lista;
-    });
+    setState(() { pedidos = lista; });
   }
 
   Future<void> selecionarData() async {
@@ -332,9 +385,7 @@ class _TelaHistoricoState extends State<TelaHistorico> {
       lastDate: DateTime.now(),
     );
     if (data != null) {
-      setState(() {
-        dataFiltro = data;
-      });
+      setState(() { dataFiltro = data; });
       carregarPedidos();
     }
   }
@@ -363,18 +414,11 @@ class _TelaHistoricoState extends State<TelaHistorico> {
     }
   }
 
-  Future<void> abrirPedido(Map<String, dynamic> pedido) async {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => TelaEditarPedido(pedido: pedido)),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Histórico de Pedidos'),
+        title: Text('Histórico'),
         backgroundColor: Colors.green,
         actions: [
           IconButton(
@@ -385,9 +429,7 @@ class _TelaHistoricoState extends State<TelaHistorico> {
             IconButton(
               icon: Icon(Icons.clear, color: Colors.white),
               onPressed: () {
-                setState(() {
-                  dataFiltro = null;
-                });
+                setState(() { dataFiltro = null; });
                 carregarPedidos();
               },
             ),
@@ -446,17 +488,19 @@ class _TelaHistoricoState extends State<TelaHistorico> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               ElevatedButton(
-                                onPressed: () => abrirPedido(p),
+                                onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => TelaEditarPedido(pedido: p),
+                                  ),
+                                ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.green,
                                   padding: EdgeInsets.symmetric(horizontal: 8),
                                 ),
                                 child: Text(
                                   '📂 Abrir',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                  ),
+                                  style: TextStyle(color: Colors.white, fontSize: 12),
                                 ),
                               ),
                               SizedBox(width: 4),

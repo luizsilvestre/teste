@@ -14,7 +14,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'cooperpedidos.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE pedidos (
@@ -31,14 +31,21 @@ class DatabaseHelper {
             codigo TEXT,
             nome TEXT,
             quantidade TEXT,
-            unidade TEXT
+            unidade TEXT,
+            origem TEXT,
+            filial TEXT
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE itens ADD COLUMN origem TEXT');
+          await db.execute('ALTER TABLE itens ADD COLUMN filial TEXT');
+        }
       },
     );
   }
 
-  // Salvar pedido
   static Future<int> salvarPedido(String origem, String filial) async {
     final database = await db;
     return await database.insert('pedidos', {
@@ -48,14 +55,7 @@ class DatabaseHelper {
     });
   }
 
-  // Salvar item
-  static Future<void> salvarItem(
-    int pedidoId,
-    String codigo,
-    String nome,
-    String quantidade,
-    String unidade,
-  ) async {
+  static Future<void> salvarItem(int pedidoId, String codigo, String nome, String quantidade, String unidade, {String origem = '', String filial = ''}) async {
     final database = await db;
     await database.insert('itens', {
       'pedido_id': pedidoId,
@@ -63,33 +63,20 @@ class DatabaseHelper {
       'nome': nome,
       'quantidade': quantidade,
       'unidade': unidade,
+      'origem': origem,
+      'filial': filial,
     });
   }
 
-  // Buscar todos os pedidos
   static Future<List<Map<String, dynamic>>> buscarPedidos() async {
     final database = await db;
     return await database.query('pedidos', orderBy: 'id DESC');
   }
 
-  // Buscar pedidos por data
-  static Future<List<Map<String, dynamic>>> buscarPedidosPorData(
-    DateTime data,
-  ) async {
+  static Future<List<Map<String, dynamic>>> buscarPedidosPorData(DateTime data) async {
     final database = await db;
-    String dataInicio = DateTime(
-      data.year,
-      data.month,
-      data.day,
-    ).toIso8601String();
-    String dataFim = DateTime(
-      data.year,
-      data.month,
-      data.day,
-      23,
-      59,
-      59,
-    ).toIso8601String();
+    String dataInicio = DateTime(data.year, data.month, data.day).toIso8601String();
+    String dataFim = DateTime(data.year, data.month, data.day, 23, 59, 59).toIso8601String();
     return await database.query(
       'pedidos',
       where: 'data BETWEEN ? AND ?',
@@ -98,25 +85,14 @@ class DatabaseHelper {
     );
   }
 
-  // Buscar itens de um pedido
   static Future<List<Map<String, dynamic>>> buscarItens(int pedidoId) async {
     final database = await db;
-    return await database.query(
-      'itens',
-      where: 'pedido_id = ?',
-      whereArgs: [pedidoId],
-    );
+    return await database.query('itens', where: 'pedido_id = ?', whereArgs: [pedidoId]);
   }
 
-  // Apagar pedido e seus itens
   static Future<void> apagarPedido(int pedidoId) async {
     final database = await db;
-    await database.delete(
-      'itens',
-      where: 'pedido_id = ?',
-      whereArgs: [pedidoId],
-    );
+    await database.delete('itens', where: 'pedido_id = ?', whereArgs: [pedidoId]);
     await database.delete('pedidos', where: 'id = ?', whereArgs: [pedidoId]);
   }
 }
-
