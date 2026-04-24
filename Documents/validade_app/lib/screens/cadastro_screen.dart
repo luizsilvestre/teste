@@ -23,11 +23,30 @@ class _CadastroScreenState extends State<CadastroScreen> {
   DateTime? _dataVencimento;
   bool _carregando = false;
 
+  List<Map<String, dynamic>> _categorias = [];
+  int? _categoriaSelecionadaId;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarCategorias();
+  }
+
+  Future<void> _carregarCategorias() async {
+    final categorias = await widget.dbHelper.buscarCategorias();
+    setState(() {
+      _categorias = categorias;
+      if (categorias.isNotEmpty) {
+        _categoriaSelecionadaId = categorias.first['id'] as int;
+      }
+    });
+  }
+
   Future<void> _selecionarData(BuildContext context) async {
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
-      firstDate: DateTime.now(),
+      firstDate: DateTime(2020),
       lastDate: DateTime(2100),
     );
 
@@ -41,7 +60,8 @@ class _CadastroScreenState extends State<CadastroScreen> {
   Future<void> _salvarMedicamento() async {
     if (_produtoController.text.isEmpty ||
         _loteController.text.isEmpty ||
-        _dataVencimento == null) {
+        _dataVencimento == null ||
+        _categoriaSelecionadaId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Preencha todos os campos!')),
       );
@@ -54,6 +74,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
 
     try {
       final medicamento = Medicamento(
+        categoriaId: _categoriaSelecionadaId!,
         produto: _produtoController.text,
         lote: _loteController.text,
         dataVencimento: DateFormat('dd/MM/yyyy').format(_dataVencimento!),
@@ -69,11 +90,13 @@ class _CadastroScreenState extends State<CadastroScreen> {
         ),
       );
 
-      // Limpar campos
       _produtoController.clear();
       _loteController.clear();
       setState(() {
         _dataVencimento = null;
+        _categoriaSelecionadaId = _categorias.isNotEmpty
+            ? _categorias.first['id'] as int
+            : null;
       });
 
       widget.onMedicamentoAdicionado();
@@ -105,6 +128,47 @@ class _CadastroScreenState extends State<CadastroScreen> {
             ),
           ),
           const SizedBox(height: 30),
+
+          // Dropdown de Categoria
+          _categorias.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : DropdownButtonFormField<int>(
+                  value: _categoriaSelecionadaId,
+                  decoration: InputDecoration(
+                    labelText: 'Categoria',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    prefixIcon: const Icon(Icons.category),
+                  ),
+                  items: _categorias.map((cat) {
+                    return DropdownMenuItem<int>(
+                      value: cat['id'] as int,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 12,
+                            height: 12,
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: BoxDecoration(
+                              color: _hexParaColor(cat['cor'] as String),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          Text(cat['nome'] as String),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _categoriaSelecionadaId = value;
+                    });
+                  },
+                ),
+
+          const SizedBox(height: 16),
+
           TextField(
             controller: _produtoController,
             decoration: InputDecoration(
@@ -184,6 +248,15 @@ class _CadastroScreenState extends State<CadastroScreen> {
         ],
       ),
     );
+  }
+
+  Color _hexParaColor(String hex) {
+    try {
+      final h = hex.replaceAll('#', '');
+      return Color(int.parse('FF$h', radix: 16));
+    } catch (_) {
+      return Colors.grey;
+    }
   }
 
   @override

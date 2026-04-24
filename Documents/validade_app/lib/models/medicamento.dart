@@ -1,5 +1,6 @@
 class Medicamento {
   final int? id;
+  final int categoriaId;
   final String produto;
   final String lote;
   final String dataVencimento;
@@ -7,6 +8,7 @@ class Medicamento {
 
   Medicamento({
     this.id,
+    required this.categoriaId,
     required this.produto,
     required this.lote,
     required this.dataVencimento,
@@ -16,6 +18,7 @@ class Medicamento {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'categoria_id': categoriaId,
       'produto': produto,
       'lote': lote,
       'dataVencimento': dataVencimento,
@@ -26,6 +29,7 @@ class Medicamento {
   factory Medicamento.fromMap(Map<String, dynamic> map) {
     return Medicamento(
       id: map['id'],
+      categoriaId: map['categoria_id'] ?? 1,
       produto: map['produto'],
       lote: map['lote'],
       dataVencimento: map['dataVencimento'],

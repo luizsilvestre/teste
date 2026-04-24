@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "261957854754",
+    "project_id": "validade-app-2e885",
+    "storage_bucket": "validade-app-2e885.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:261957854754:android:80489e73b69e26012a0c7b",
+        "android_client_info": {
+          "package_name": "com.example.validade_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCdsdk0r5N7yKhQs3oGPZkp8xMVF8nTKKw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

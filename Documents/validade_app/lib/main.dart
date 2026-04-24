@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'screens/config_screen.dart';
+
 import 'screens/home_screen.dart';
 
 void main() async {
@@ -15,10 +15,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Controle de Validade',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-      ),
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
       home: const SplashScreen(),
       debugShowCheckedModeBanner: false,
     );
@@ -33,35 +30,53 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  String? _emailConfigurado;
-
   @override
   void initState() {
     super.initState();
-    _verificarEmail();
+    _iniciar();
   }
 
-  Future<void> _verificarEmail() async {
+  Future<void> _iniciar() async {
+    // Pequeno delay para mostrar o splash
+    await Future.delayed(const Duration(milliseconds: 800));
+
+    // Carrega o email salvo (pode ser vazio — não é obrigatório)
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('email_google_sheets');
-    
-    setState(() {
-      _emailConfigurado = email;
-    });
+    final email = prefs.getString('email_google_sheets') ?? '';
+
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HomeScreen(email: email),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_emailConfigurado == null) {
-      return ConfigScreen(
-        onEmailSalvo: (email) {
-          setState(() {
-            _emailConfigurado = email;
-          });
-        },
-      );
-    }
-
-    return HomeScreen(email: _emailConfigurado!);
+    return Scaffold(
+      backgroundColor: Colors.blue.shade700,
+      body: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.verified_user, size: 80, color: Colors.white),
+            SizedBox(height: 20),
+            Text(
+              'Controle de Validade',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(height: 40),
+            CircularProgressIndicator(color: Colors.white),
+          ],
+        ),
+      ),
+    );
   }
 }

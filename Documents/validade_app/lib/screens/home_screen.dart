@@ -4,6 +4,8 @@ import '../database/db_helper.dart';
 import '../models/medicamento.dart';
 import 'cadastro_screen.dart';
 import 'lista_screen.dart';
+import 'alertas_screen.dart';
+import 'categorias_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String email;
@@ -51,9 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: InputDecoration(
             labelText: 'Novo Email',
             hintText: 'seu.email@gmail.com',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             prefixIcon: const Icon(Icons.email),
           ),
         ),
@@ -66,9 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () async {
               if (emailController.text.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Email não pode estar vazio!'),
-                  ),
+                  const SnackBar(content: Text('Email não pode estar vazio!')),
                 );
                 return;
               }
@@ -100,7 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    List<Widget> telas = [
+    final List<Widget> telas = [
       CadastroScreen(
         dbHelper: dbHelper,
         onMedicamentoAdicionado: _atualizarLista,
@@ -110,11 +108,16 @@ class _HomeScreenState extends State<HomeScreen> {
         dbHelper: dbHelper,
         onMedicamentoDeletado: _atualizarLista,
       ),
+      CategoriasScreen(dbHelper: dbHelper),
+      AlertasScreen(dbHelper: dbHelper),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Controle de Validade'),
+        title: const Text(
+          'Controle de Validade',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.blue.shade700,
         actions: [
           Padding(
@@ -123,11 +126,7 @@ class _HomeScreenState extends State<HomeScreen> {
               message: 'Alterar Email',
               child: GestureDetector(
                 onTap: _mostrarDialogoAlterarEmail,
-                child: const Icon(
-                  Icons.email,
-                  color: Colors.white,
-                  size: 24,
-                ),
+                child: const Icon(Icons.email, color: Colors.white, size: 24),
               ),
             ),
           ),
@@ -136,6 +135,9 @@ class _HomeScreenState extends State<HomeScreen> {
       body: telas[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
+        type: BottomNavigationBarType.fixed, // essencial com 4+ itens
+        selectedItemColor: Colors.blue.shade700,
+        unselectedItemColor: Colors.grey,
         onTap: (index) {
           setState(() {
             _selectedIndex = index;
@@ -145,14 +147,10 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         },
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add),
-            label: 'Cadastro',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.list),
-            label: 'Lista',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline), label: 'Cadastro'),
+          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Lista'),
+          BottomNavigationBarItem(icon: Icon(Icons.label_outline), label: 'Categorias'),
+          BottomNavigationBarItem(icon: Icon(Icons.notifications_outlined), label: 'Alertas'),
         ],
       ),
     );
