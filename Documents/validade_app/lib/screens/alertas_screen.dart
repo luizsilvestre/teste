@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:url_launcher/url_launcher.dart';
 import '../database/db_helper.dart';
 import '../models/medicamento.dart';
 
@@ -15,22 +14,27 @@ class AlertasScreen extends StatefulWidget {
 
 class _AlertasScreenState extends State<AlertasScreen> {
   final _numeroController = TextEditingController();
-  List<Medicamento> _medicamentosVencimento = [];
-  bool _carregando = false;
+  List<Medicamento> _vencidos = [];
+  List<Medicamento> _urgentes = [];
+  List<Medicamento> _atencao = [];
+  bool _carregando = true;
 
   @override
   void initState() {
     super.initState();
-    _carregarMedicamentosVencimento();
+    _carregarMedicamentos();
   }
 
-  Future<void> _carregarMedicamentosVencimento() async {
-    final medicamentos = await widget.dbHelper.buscarTodos();
-    
+  Future<void> _carregarMedicamentos() async {
+    setState(() => _carregando = true);
+    final todos = await widget.dbHelper.buscarTodos();
     final agora = DateTime.now();
-    final emTresMeses = agora.add(const Duration(days: 90));
 
-    final vencendo = medicamentos.where((med) {
+    List<Medicamento> vencidos = [];
+    List<Medicamento> urgentes = [];
+    List<Medicamento> atencao = [];
+
+    for (final med in todos) {
       try {
         final partes = med.dataVencimento.split('/');
         final data = DateTime(
@@ -38,126 +42,211 @@ class _AlertasScreenState extends State<AlertasScreen> {
           int.parse(partes[1]),
           int.parse(partes[0]),
         );
-        return data.isAfter(agora) && data.isBefore(emTresMeses);
-      } catch (e) {
-        return false;
-      }
-    }).toList();
+        final dias = data.difference(agora).inDays;
+
+        if (dias < 0) {
+          vencidos.add(med);
+        } else if (dias <= 30) {
+          urgentes.add(med);
+        } else if (dias <= 90) {
+          atencao.add(med);
+        }
+      } catch (_) {}
+    }
 
     setState(() {
-      _medicamentosVencimento = vencendo;
+      _vencidos = vencidos;
+      _urgentes = urgentes;
+      _atencao = atencao;
+      _carregando = false;
     });
   }
 
-  Future<void> _enviarAlerta(Medicamento medicamento) async {
-    if (_numeroController.text.isEmpty) {
+  Future<void> _enviarWhatsApp(Medicamento med) async {
+    final numero = _numeroController.text.trim().replaceAll(RegExp(r'\D'), '');
+    if (numero.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Digite o número do WhatsApp!')),
       );
       return;
     }
 
-    setState(() {
-      _carregando = true;
-    });
+    final partes = med.dataVencimento.split('/');
+    final data = DateTime(
+      int.parse(partes[2]),
+      int.parse(partes[1]),
+      int.parse(partes[0]),
+    );
+    final dias = data.difference(DateTime.now()).inDays;
 
-    try {
-      final response = await http.post(
-        Uri.parse('http://localhost:3000/api/alertar-vencimento'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'numero': _numeroController.text,
-          'medicamento': medicamento.produto,
-          'dataVencimento': medicamento.dataVencimento,
-        }),
-      ).timeout(const Duration(seconds: 10));
+    String mensagem;
+    if (dias < 0) {
+      mensagem =
+          '⚠️ *PRODUTO VENCIDO*\n\nProduto: ${med.produto}\nLote: ${med.lote}\nVencimento: ${med.dataVencimento}\n\nEste produto está vencido há ${dias.abs()} dias!';
+    } else {
+      mensagem =
+          '⚠️ *ALERTA DE VENCIMENTO*\n\nProduto: ${med.produto}\nLote: ${med.lote}\nVencimento: ${med.dataVencimento}\n\nRestam apenas $dias dias para o vencimento!';
+    }
 
-      if (response.statusCode == 200) {
+    final url = Uri.parse(
+      'https://wa.me/55$numero?text=${Uri.encodeComponent(mensagem)}',
+    );
+
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Alerta enviado via WhatsApp!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('❌ Erro ao enviar alerta')),
+          const SnackBar(content: Text('Não foi possível abrir o WhatsApp')),
         );
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Erro: $e')),
-      );
-    } finally {
-      setState(() {
-        _carregando = false;
-      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 20),
-          const Text(
-            'Alertas de Vencimento',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: Colors.blue,
-            ),
-          ),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _numeroController,
-            keyboardType: TextInputType.phone,
-            decoration: InputDecoration(
-              labelText: 'Número WhatsApp (ex: 11999999999)',
-              prefixIcon: const Icon(Icons.phone),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Medicamentos vencendo em 3 meses:',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 10),
-          Expanded(
-            child: _medicamentosVencimento.isEmpty
-                ? const Center(
-                    child: Text('Nenhum medicamento vencendo em breve! ✅'),
-                  )
-                : ListView.builder(
-                    itemCount: _medicamentosVencimento.length,
-                    itemBuilder: (context, index) {
-                      final med = _medicamentosVencimento[index];
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 8),
-                        child: ListTile(
-                          title: Text(med.produto),
-                          subtitle: Text('Vence: ${med.dataVencimento}'),
-                          trailing: ElevatedButton(
-                            onPressed: _carregando
-                                ? null
-                                : () => _enviarAlerta(med),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
-                            ),
-                            child: const Text('Alertar'),
-                          ),
-                        ),
-                      );
-                    },
+    final total = _vencidos.length + _urgentes.length + _atencao.length;
+
+    return _carregando
+        ? const Center(child: CircularProgressIndicator())
+        : RefreshIndicator(
+            onRefresh: _carregarMedicamentos,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                const Text(
+                  'Alertas de Vencimento',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
                   ),
-          ),
-        ],
+                ),
+                const SizedBox(height: 16),
+
+                // Campo WhatsApp
+                TextField(
+                  controller: _numeroController,
+                  keyboardType: TextInputType.phone,
+                  decoration: InputDecoration(
+                    labelText: 'WhatsApp para alertar (ex: 48999999999)',
+                    prefixIcon: const Icon(Icons.phone),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Resumo
+                Row(
+                  children: [
+                    _resumoCard('Vencidos', _vencidos.length, Colors.red),
+                    const SizedBox(width: 8),
+                    _resumoCard('Urgentes', _urgentes.length, Colors.orange),
+                    const SizedBox(width: 8),
+                    _resumoCard('Atenção', _atencao.length, Colors.yellow.shade700),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                if (total == 0)
+                  Center(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 40),
+                        Icon(Icons.check_circle,
+                            size: 80, color: Colors.green.shade400),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Tudo em dia! ✅',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const Text(
+                            'Nenhum produto vencido ou vencendo em breve.'),
+                      ],
+                    ),
+                  ),
+
+                if (_vencidos.isNotEmpty) ...[
+                  _secaoTitulo('🔴 Vencidos', Colors.red),
+                  ..._vencidos.map((m) => _cardAlerta(m, Colors.red)),
+                ],
+                if (_urgentes.isNotEmpty) ...[
+                  _secaoTitulo('🟠 Urgente (até 30 dias)', Colors.orange),
+                  ..._urgentes.map((m) => _cardAlerta(m, Colors.orange)),
+                ],
+                if (_atencao.isNotEmpty) ...[
+                  _secaoTitulo('🟡 Atenção (31–90 dias)', Colors.yellow.shade700),
+                  ..._atencao.map((m) => _cardAlerta(m, Colors.yellow.shade700)),
+                ],
+              ],
+            ),
+          );
+  }
+
+  Widget _resumoCard(String label, int count, Color cor) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: cor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: cor, width: 1.5),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '$count',
+              style: TextStyle(
+                  fontSize: 24, fontWeight: FontWeight.bold, color: cor),
+            ),
+            Text(label,
+                style: TextStyle(fontSize: 12, color: cor),
+                textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _secaoTitulo(String titulo, Color cor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        titulo,
+        style: TextStyle(
+            fontSize: 16, fontWeight: FontWeight.bold, color: cor),
+      ),
+    );
+  }
+
+  Widget _cardAlerta(Medicamento med, Color cor) {
+    final partes = med.dataVencimento.split('/');
+    final data = DateTime(
+      int.parse(partes[2]),
+      int.parse(partes[1]),
+      int.parse(partes[0]),
+    );
+    final dias = data.difference(DateTime.now()).inDays;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Icon(Icons.warning_amber_rounded, color: cor),
+        title: Text(med.produto,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(
+          'Lote: ${med.lote} • Vence: ${med.dataVencimento}\n'
+          '${dias < 0 ? "Vencido há ${dias.abs()} dias" : "Restam $dias dias"}',
+        ),
+        isThreeLine: true,
+        trailing: IconButton(
+          icon: const Icon(Icons.send, color: Colors.green),
+          tooltip: 'Alertar via WhatsApp',
+          onPressed: () => _enviarWhatsApp(med),
+        ),
       ),
     );
   }
