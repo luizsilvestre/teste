@@ -6,10 +6,7 @@ class DBHelper {
   static final DBHelper _instance = DBHelper._internal();
   static Database? _database;
 
-  factory DBHelper() {
-    return _instance;
-  }
-
+  factory DBHelper() => _instance;
   DBHelper._internal();
 
   Future<Database> get database async {
@@ -35,6 +32,8 @@ class DBHelper {
         lote TEXT NOT NULL,
         dataVencimento TEXT NOT NULL,
         criadoEm TEXT NOT NULL,
+        codigoBarras TEXT,
+        foto TEXT,
         FOREIGN KEY(categoria_id) REFERENCES categorias(id)
       )
     ''');
@@ -68,7 +67,7 @@ class DBHelper {
 
       return await openDatabase(
         path,
-        version: 2,
+        version: 3,
         onCreate: (db, version) async {
           await _criarTabelas(db);
           await _inserirCategoriasPadrao(db);
@@ -80,6 +79,14 @@ class DBHelper {
             await db.execute('DROP TABLE IF EXISTS contatos');
             await _criarTabelas(db);
             await _inserirCategoriasPadrao(db);
+          } else if (oldVersion < 3) {
+            // Adiciona colunas novas sem perder dados
+            await db.execute(
+              'ALTER TABLE medicamentos ADD COLUMN codigoBarras TEXT'
+            );
+            await db.execute(
+              'ALTER TABLE medicamentos ADD COLUMN foto TEXT'
+            );
           }
         },
       );
@@ -89,150 +96,90 @@ class DBHelper {
     }
   }
 
-  // ===== MÉTODOS MEDICAMENTOS =====
+  // ===== MEDICAMENTOS =====
   Future<int> inserir(Medicamento medicamento) async {
-    try {
-      final db = await database;
-      return await db.insert('medicamentos', medicamento.toMap());
-    } catch (e) {
-      print('Erro ao inserir: $e');
-      rethrow;
-    }
+    final db = await database;
+    return await db.insert('medicamentos', medicamento.toMap());
   }
 
   Future<List<Medicamento>> buscarTodos() async {
-    try {
-      final db = await database;
-      final result = await db.query('medicamentos');
-      return result.map((map) => Medicamento.fromMap(map)).toList();
-    } catch (e) {
-      print('Erro ao buscar: $e');
-      return [];
-    }
+    final db = await database;
+    final result = await db.query('medicamentos');
+    return result.map((map) => Medicamento.fromMap(map)).toList();
   }
 
   Future<List<Medicamento>> buscarPorCategoria(int categoriaId) async {
-    try {
-      final db = await database;
-      final result = await db.query(
-        'medicamentos',
-        where: 'categoria_id = ?',
-        whereArgs: [categoriaId],
-      );
-      return result.map((map) => Medicamento.fromMap(map)).toList();
-    } catch (e) {
-      print('Erro ao buscar por categoria: $e');
-      return [];
-    }
+    final db = await database;
+    final result = await db.query(
+      'medicamentos',
+      where: 'categoria_id = ?',
+      whereArgs: [categoriaId],
+    );
+    return result.map((map) => Medicamento.fromMap(map)).toList();
   }
 
   Future<int> deletar(int id) async {
-    try {
-      final db = await database;
-      return await db.delete('medicamentos', where: 'id = ?', whereArgs: [id]);
-    } catch (e) {
-      print('Erro ao deletar: $e');
-      rethrow;
-    }
+    final db = await database;
+    return await db.delete('medicamentos', where: 'id = ?', whereArgs: [id]);
   }
 
-  // ===== MÉTODOS CATEGORIAS =====
+  // ===== CATEGORIAS =====
   Future<List<Map<String, dynamic>>> buscarCategorias() async {
-    try {
-      final db = await database;
-      return await db.query('categorias', orderBy: 'nome ASC');
-    } catch (e) {
-      print('Erro ao buscar categorias: $e');
-      return [];
-    }
+    final db = await database;
+    return await db.query('categorias', orderBy: 'nome ASC');
   }
 
   Future<int> inserirCategoria(String nome, String cor) async {
-    try {
-      final db = await database;
-      return await db.insert('categorias', {
-        'nome': nome,
-        'cor': cor,
-        'criadoEm': DateTime.now().toIso8601String(),
-      });
-    } catch (e) {
-      print('Erro ao inserir categoria: $e');
-      rethrow;
-    }
+    final db = await database;
+    return await db.insert('categorias', {
+      'nome': nome,
+      'cor': cor,
+      'criadoEm': DateTime.now().toIso8601String(),
+    });
   }
 
   Future<int> atualizarCategoria(int id, String nome, String cor) async {
-    try {
-      final db = await database;
-      return await db.update(
-        'categorias',
-        {'nome': nome, 'cor': cor},
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-    } catch (e) {
-      print('Erro ao atualizar categoria: $e');
-      rethrow;
-    }
+    final db = await database;
+    return await db.update(
+      'categorias',
+      {'nome': nome, 'cor': cor},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<int> deletarCategoria(int id) async {
-    try {
-      final db = await database;
-      return await db.delete('categorias', where: 'id = ?', whereArgs: [id]);
-    } catch (e) {
-      print('Erro ao deletar categoria: $e');
-      rethrow;
-    }
+    final db = await database;
+    return await db.delete('categorias', where: 'id = ?', whereArgs: [id]);
   }
 
-  // ===== MÉTODOS CONTATOS =====
+  // ===== CONTATOS =====
   Future<int> inserirContato(String tipo, String numero, String nome) async {
-    try {
-      final db = await database;
-      return await db.insert('contatos', {
-        'tipo': tipo,
-        'numero': numero,
-        'nome': nome,
-      });
-    } catch (e) {
-      print('Erro ao inserir contato: $e');
-      rethrow;
-    }
+    final db = await database;
+    return await db.insert('contatos', {
+      'tipo': tipo,
+      'numero': numero,
+      'nome': nome,
+    });
   }
 
   Future<List<Map<String, dynamic>>> buscarContatos() async {
-    try {
-      final db = await database;
-      return await db.query('contatos');
-    } catch (e) {
-      print('Erro ao buscar contatos: $e');
-      return [];
-    }
+    final db = await database;
+    return await db.query('contatos');
   }
 
   Future<int> atualizarContato(int id, String numero, String nome) async {
-    try {
-      final db = await database;
-      return await db.update(
-        'contatos',
-        {'numero': numero, 'nome': nome},
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-    } catch (e) {
-      print('Erro ao atualizar contato: $e');
-      rethrow;
-    }
+    final db = await database;
+    return await db.update(
+      'contatos',
+      {'numero': numero, 'nome': nome},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<int> deletarContato(int id) async {
-    try {
-      final db = await database;
-      return await db.delete('contatos', where: 'id = ?', whereArgs: [id]);
-    } catch (e) {
-      print('Erro ao deletar contato: $e');
-      rethrow;
-    }
+    final db = await database;
+    return await db.delete('contatos', where: 'id = ?', whereArgs: [id]);
   }
 }

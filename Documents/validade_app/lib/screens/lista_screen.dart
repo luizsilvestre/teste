@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../database/db_helper.dart';
@@ -22,7 +23,7 @@ class ListaScreen extends StatefulWidget {
 class _ListaScreenState extends State<ListaScreen> {
   late List<Medicamento> _medicamentos;
   List<Map<String, dynamic>> _categorias = [];
-  int? _categoriaSelecionada; // null = todas
+  int? _categoriaSelecionada;
 
   @override
   void initState() {
@@ -39,13 +40,13 @@ class _ListaScreenState extends State<ListaScreen> {
     _ordenarPorValidade();
   }
 
+  // Busca categorias do banco para exibir nome e cor
   Future<void> _carregarCategorias() async {
     final cats = await widget.dbHelper.buscarCategorias();
-    setState(() {
-      _categorias = cats;
-    });
+    setState(() => _categorias = cats);
   }
 
+  // Ordena pelo vencimento mais próximo primeiro
   void _ordenarPorValidade() {
     _medicamentos.sort((a, b) {
       final dateA = DateFormat('dd/MM/yyyy').parse(a.dataVencimento);
@@ -54,59 +55,61 @@ class _ListaScreenState extends State<ListaScreen> {
     });
   }
 
-  List<Medicamento> get _medicamentosFiltrados {
+  // Agrupa produtos pelo nome — mesmo produto, lotes diferentes
+  Map<String, List<Medicamento>> _agrupar(List<Medicamento> lista) {
+    final Map<String, List<Medicamento>> grupos = {};
+    for (final med in lista) {
+      grupos.putIfAbsent(med.produto, () => []);
+      grupos[med.produto]!.add(med);
+    }
+    return grupos;
+  }
+
+  // Filtra por categoria selecionada (null = todos)
+  List<Medicamento> get _filtrados {
     if (_categoriaSelecionada == null) return _medicamentos;
     return _medicamentos
         .where((m) => m.categoriaId == _categoriaSelecionada)
         .toList();
   }
 
-  int _calcularDiasRestantes(String dataVencimento) {
-    final hoje = DateTime.now();
+  // Calcula dias restantes até o vencimento (negativo = vencido)
+  int _dias(String dataVencimento) {
     final vencimento = DateFormat('dd/MM/yyyy').parse(dataVencimento);
-    return vencimento.difference(hoje).inDays;
+    return vencimento.difference(DateTime.now()).inDays;
   }
 
-  Color _obterCor(int diasRestantes) {
-    if (diasRestantes < 0) return Colors.red;
-    if (diasRestantes <= 30) return Colors.orange;
-    if (diasRestantes <= 90) return Colors.yellow.shade700;
+  // Retorna cor baseada na urgência
+  Color _cor(int dias) {
+    if (dias < 0) return Colors.red;
+    if (dias <= 30) return Colors.orange;
+    if (dias <= 90) return Colors.yellow.shade700;
     return Colors.green;
   }
 
-  String _obterStatus(int diasRestantes) {
-    if (diasRestantes < 0) return 'VENCIDO';
-    if (diasRestantes == 0) return 'VENCE HOJE';
-    if (diasRestantes <= 30) return 'URGENTE';
-    if (diasRestantes <= 90) return 'ATENÇÃO';
+  // Retorna texto de status baseado na urgência
+  String _status(int dias) {
+    if (dias < 0) return 'VENCIDO';
+    if (dias == 0) return 'VENCE HOJE';
+    if (dias <= 30) return 'URGENTE';
+    if (dias <= 90) return 'ATENÇÃO';
     return 'OK';
   }
 
-  String _nomeCategoria(int categoriaId) {
+  // Busca nome da categoria pelo id
+  String _nomeCategoria(int id) {
     final cat = _categorias.firstWhere(
-      (c) => c['id'] == categoriaId,
-      orElse: () => {'nome': 'Sem categoria'},
+      (c) => c['id'] == id,
+      orElse: () => {'nome': ''},
     );
     return cat['nome'] as String;
   }
 
-  Color _corCategoria(int categoriaId) {
-    final cat = _categorias.firstWhere(
-      (c) => c['id'] == categoriaId,
-      orElse: () => {'cor': '#9E9E9E'},
-    );
-    try {
-      final hex = (cat['cor'] as String).replaceAll('#', '');
-      return Color(int.parse('FF$hex', radix: 16));
-    } catch (_) {
-      return Colors.grey;
-    }
-  }
-
-  Future<void> _deletarMedicamento(int id) async {
-    final confirmDelete = await showDialog<bool>(
+  // ===== DELETAR PRODUTO =====
+  Future<void> _deletar(int id) async {
+    final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (_) => AlertDialog(
         title: const Text('Deletar produto?'),
         content: const Text('Esta ação não pode ser desfeita.'),
         actions: [
@@ -121,195 +124,433 @@ class _ListaScreenState extends State<ListaScreen> {
         ],
       ),
     );
-
-    if (confirmDelete == true) {
+    if (ok == true) {
       await widget.dbHelper.deletar(id);
       widget.onMedicamentoDeletado();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Produto deletado!')),
-        );
-      }
     }
+  }
+
+  // ===== EDITAR PRODUTO =====
+  // Abre bottom sheet com campos preenchidos para edição
+  void _editarMedicamento(Medicamento med) {
+    final produtoController = TextEditingController(text: med.produto);
+    final loteController = TextEditingController(text: med.lote);
+    DateTime? dataVencimento =
+        DateFormat('dd/MM/yyyy').parse(med.dataVencimento);
+    int? categoriaSelecionada = med.categoriaId;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true, // evita tela branca ao abrir teclado
+      backgroundColor: Colors.transparent,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          // Padding dinâmico sobe o sheet quando o teclado aparece
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Handle visual do bottom sheet
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  const Text(
+                    'Editar Produto',
+                    style: TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Dropdown de categoria
+                  DropdownButtonFormField<int>(
+                    value: categoriaSelecionada,
+                    decoration: InputDecoration(
+                      labelText: 'Categoria',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      prefixIcon: const Icon(Icons.category),
+                    ),
+                    items: _categorias.map((cat) {
+                      return DropdownMenuItem<int>(
+                        value: cat['id'] as int,
+                        child: Text(cat['nome'] as String),
+                      );
+                    }).toList(),
+                    onChanged: (v) =>
+                        setSheetState(() => categoriaSelecionada = v),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Campo nome do produto
+                  TextField(
+                    controller: produtoController,
+                    decoration: InputDecoration(
+                      labelText: 'Nome do produto',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      prefixIcon: const Icon(Icons.local_pharmacy),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Campo lote
+                  TextField(
+                    controller: loteController,
+                    decoration: InputDecoration(
+                      labelText: 'Lote',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      prefixIcon: const Icon(Icons.numbers),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Seletor de data de vencimento
+                  GestureDetector(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: dataVencimento ?? DateTime.now(),
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) {
+                        setSheetState(() => dataVencimento = picked);
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 14, horizontal: 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.calendar_today,
+                              color: Colors.blue),
+                          const SizedBox(width: 12),
+                          Text(
+                            dataVencimento == null
+                                ? 'Data de vencimento'
+                                : DateFormat('dd/MM/yyyy')
+                                    .format(dataVencimento!),
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: dataVencimento == null
+                                  ? Colors.grey
+                                  : Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Botão salvar alterações
+                  ElevatedButton(
+                    onPressed: () async {
+                      if (produtoController.text.isEmpty ||
+                          loteController.text.isEmpty ||
+                          dataVencimento == null ||
+                          categoriaSelecionada == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Preencha todos os campos!')),
+                        );
+                        return;
+                      }
+
+                      // Mantém foto e código de barras originais
+                      final atualizado = Medicamento(
+                        id: med.id,
+                        categoriaId: categoriaSelecionada!,
+                        produto: produtoController.text,
+                        lote: loteController.text,
+                        dataVencimento: DateFormat('dd/MM/yyyy')
+                            .format(dataVencimento!),
+                        criadoEm: med.criadoEm,
+                        codigoBarras: med.codigoBarras,
+                        foto: med.foto,
+                      );
+
+                      // Atualiza no banco de dados
+                      final db = await widget.dbHelper.database;
+                      await db.update(
+                        'medicamentos',
+                        atualizado.toMap(),
+                        where: 'id = ?',
+                        whereArgs: [med.id],
+                      );
+
+                      if (context.mounted) Navigator.pop(context);
+                      widget.onMedicamentoDeletado(); // recarrega a lista
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('✅ Produto atualizado!'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      backgroundColor: Colors.blue.shade700,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text(
+                      'Salvar Alterações',
+                      style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final lista = _medicamentosFiltrados;
+    final lista = _filtrados;
+    final grupos = _agrupar(lista);
+    final nomes = grupos.keys.toList();
 
     return Column(
       children: [
-        // Filtro por categoria
+        // ===== CHIPS DE FILTRO POR CATEGORIA =====
         if (_categorias.isNotEmpty)
-          Container(
+          SizedBox(
             height: 48,
-            margin: const EdgeInsets.symmetric(vertical: 8),
             child: ListView(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               children: [
-                _chipFiltro('Todos', null),
-                ..._categorias.map((cat) => _chipFiltro(
-                      cat['nome'] as String,
-                      cat['id'] as int,
-                      cor: (() {
-                        try {
-                          final hex =
-                              (cat['cor'] as String).replaceAll('#', '');
-                          return Color(int.parse('FF$hex', radix: 16));
-                        } catch (_) {
-                          return Colors.grey;
-                        }
-                      })(),
-                    )),
+                _chip('Todos', null),
+                ..._categorias
+                    .map((c) => _chip(c['nome'] as String, c['id'] as int)),
               ],
             ),
           ),
 
-        // Lista
+        // ===== LISTA AGRUPADA POR PRODUTO =====
         Expanded(
           child: lista.isEmpty
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.inbox, size: 80, color: Colors.grey.shade400),
-                      const SizedBox(height: 20),
+                      Icon(Icons.inbox,
+                          size: 80, color: Colors.grey.shade300),
+                      const SizedBox(height: 16),
                       Text(
                         'Nenhum produto cadastrado',
                         style: TextStyle(
-                            fontSize: 18, color: Colors.grey.shade600),
+                            color: Colors.grey.shade500, fontSize: 16),
                       ),
                     ],
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  itemCount: lista.length,
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                  itemCount: nomes.length,
                   itemBuilder: (context, index) {
-                    final med = lista[index];
-                    final dias = _calcularDiasRestantes(med.dataVencimento);
-                    final cor = _obterCor(dias);
-                    final status = _obterStatus(dias);
+                    final nome = nomes[index];
+                    final lotes = grupos[nome]!;
+
+                    // Status mais crítico do grupo (menor dias = mais urgente)
+                    final diasCritico = lotes
+                        .map((m) => _dias(m.dataVencimento))
+                        .reduce((a, b) => a < b ? a : b);
+                    final corCritica = _cor(diasCritico);
+                    final statusCritico = _status(diasCritico);
+
+                    // Usa foto do primeiro lote que tiver
+                    final foto = lotes
+                        .firstWhere((m) => m.foto != null,
+                            orElse: () => lotes.first)
+                        .foto;
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 12),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: cor, width: 3),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          med.produto,
-                                          style: const TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: corCritica, width: 2),
+                      ),
+                      child: Column(
+                        children: [
+                          // ===== HEADER DO GRUPO =====
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              children: [
+                                // Foto do produto
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: foto != null
+                                      ? Image.file(
+                                          File(foto),
+                                          width: 56,
+                                          height: 56,
+                                          fit: BoxFit.cover,
+                                        )
+                                      : Container(
+                                          width: 56,
+                                          height: 56,
+                                          color: Colors.grey.shade200,
+                                          child: Icon(Icons.local_pharmacy,
+                                              color: Colors.grey.shade400),
                                         ),
-                                        const SizedBox(height: 4),
-                                        Row(
-                                          children: [
-                                            Container(
-                                              width: 8,
-                                              height: 8,
-                                              margin: const EdgeInsets.only(
-                                                  right: 6),
-                                              decoration: BoxDecoration(
-                                                color: _corCategoria(
-                                                    med.categoriaId),
-                                                shape: BoxShape.circle,
-                                              ),
-                                            ),
-                                            Text(
-                                              _nomeCategoria(med.categoriaId),
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Lote: ${med.lote}',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: cor,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      status,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Column(
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
+                                      // Nome do produto
                                       Text(
-                                        'Vence em: ${med.dataVencimento}',
-                                        style: const TextStyle(fontSize: 14),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        dias < 0
-                                            ? 'Vencido há ${dias.abs()} dias'
-                                            : 'Dias restantes: $dias',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: cor,
+                                        nome,
+                                        style: const TextStyle(
+                                          fontSize: 16,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
+                                      const SizedBox(height: 2),
+                                      // Categoria
+                                      Text(
+                                        _nomeCategoria(
+                                            lotes.first.categoriaId),
+                                        style: TextStyle(
+                                            color: Colors.grey.shade500,
+                                            fontSize: 12),
+                                      ),
+                                      // Código de barras (se houver)
+                                      if (lotes.first.codigoBarras != null)
+                                        Text(
+                                          lotes.first.codigoBarras!,
+                                          style: TextStyle(
+                                              color: Colors.grey.shade400,
+                                              fontSize: 11),
+                                        ),
                                     ],
                                   ),
-                                  IconButton(
-                                    onPressed: () =>
-                                        _deletarMedicamento(med.id!),
-                                    icon: const Icon(Icons.delete,
-                                        color: Colors.red),
+                                ),
+                                // Badge do status mais crítico
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: corCritica,
+                                    borderRadius: BorderRadius.circular(20),
                                   ),
-                                ],
-                              ),
-                            ],
+                                  child: Text(
+                                    statusCritico,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
+
+                          // ===== LOTES DO PRODUTO =====
+                          const Divider(height: 1),
+                          ...lotes.map((med) {
+                            final dias = _dias(med.dataVencimento);
+                            final cor = _cor(dias);
+
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: cor.withOpacity(0.05),
+                                // Arredonda o último lote embaixo
+                                borderRadius: lotes.last == med
+                                    ? const BorderRadius.vertical(
+                                        bottom: Radius.circular(12))
+                                    : null,
+                              ),
+                              child: ListTile(
+                                dense: true,
+                                // Bolinha colorida indicando urgência
+                                leading: Container(
+                                  width: 10,
+                                  height: 10,
+                                  margin: const EdgeInsets.only(top: 4),
+                                  decoration: BoxDecoration(
+                                    color: cor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                title: Text(
+                                  'Lote: ${med.lote}',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                subtitle: Text(
+                                  '${med.dataVencimento}  •  '
+                                  '${dias < 0 ? "Vencido há ${dias.abs()} dias" : "$dias dias restantes"}',
+                                  style: TextStyle(
+                                    color: cor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Botão editar lote
+                                    IconButton(
+                                      icon: const Icon(Icons.edit_outlined,
+                                          color: Colors.blue, size: 20),
+                                      onPressed: () =>
+                                          _editarMedicamento(med),
+                                    ),
+                                    // Botão deletar lote
+                                    IconButton(
+                                      icon: const Icon(
+                                          Icons.delete_outline,
+                                          color: Colors.red,
+                                          size: 20),
+                                      onPressed: () => _deletar(med.id!),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
                       ),
                     );
                   },
@@ -319,21 +560,22 @@ class _ListaScreenState extends State<ListaScreen> {
     );
   }
 
-  Widget _chipFiltro(String label, int? categoriaId, {Color? cor}) {
-    final selecionado = _categoriaSelecionada == categoriaId;
+  // ===== CHIP DE FILTRO =====
+  Widget _chip(String label, int? id) {
+    final sel = _categoriaSelecionada == id;
     return GestureDetector(
-      onTap: () => setState(() => _categoriaSelecionada = categoriaId),
+      onTap: () => setState(() => _categoriaSelecionada = id),
       child: Container(
         margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
         decoration: BoxDecoration(
-          color: selecionado ? (cor ?? Colors.blue.shade700) : Colors.grey.shade200,
+          color: sel ? Colors.blue.shade700 : Colors.grey.shade200,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selecionado ? Colors.white : Colors.grey.shade700,
+            color: sel ? Colors.white : Colors.grey.shade700,
             fontWeight: FontWeight.w600,
             fontSize: 13,
           ),
